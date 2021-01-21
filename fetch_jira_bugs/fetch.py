@@ -71,8 +71,7 @@ def fetch_issues(owner, repo):
                 if len(r.links) == 0:
                     print(dir(r))
             except Exception as e:
-                print("An error has occurred")
-                print(e)
+                print("An error has occurred: ", e)
                 break
 
             print("Successful page requests: %d" % (startpage))
