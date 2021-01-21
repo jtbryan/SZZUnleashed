@@ -1,66 +1,108 @@
-""" Fetch issues that match given jql query """
+""" Fetch issues that match given parameters """
 __author__ = "Kristian Berg"
 __copyright__ = "Copyright (c) 2018 Axis Communications AB"
 __license__ = "MIT"
 
 from urllib.parse import quote
-
 import urllib.request as url
 import json
+import requests
 import os
 import argparse
 import io
 import sys
+import time
+import re
 
-def fetch(project_issue_code, jira_project_name):
-    """ Fetch issues that match given jql query """
-    # Jira Query Language string which filters for resolved issues of type bug
-    jql = 'project = ' + project_issue_code + ' ' \
-        + 'AND issuetype = Bug '\
-        + 'AND status in (Resolved, Closed) '\
-        + 'AND resolution = Fixed '\
-        + 'AND component = core '\
-        + 'AND created <= "2018-02-20 10:34" '\
-        + 'ORDER BY created DESC'
-    jql = quote(jql, safe='')
+def fetch_issues(owner, repo):
+    """ Fetch all issues from given repository """
+    request = "https://api.github.com/repos/"+args.owner+"/"+args.repo+"/issues"
 
-    start_at = 0
+    # using api_token to incrase rate limit
+    # NOTE: This is not necessary, just recommended
+    # Rate limit with token: 30 requests per minute
+    # Without token: 10 requests per minute
+    api_token = "8e1f56e38618109720a1340dfe0bca977e7ce4ad"
 
-    # max_results parameter is capped at 1000, specifying a higher value will
-    # still return only the first 1000 results
-    max_results = 1000
+    '''
+        Searching for issues includes both pull requests and issues
+        Parameters that can be passed:
+            page: The page to start searching on
+            per_page: # of results per page
+            state: the state of the issue/pull request
+                - closed - closed issues
+                - open - open issues
+            type: 
+                - issue - issues
+                - pr - pull request
+            labels: the label associated with the issue/pull request
+    '''
 
+    startpage = 1
+    params = {'page':startpage, 'per_page':100, 'state':'closed', 'labels':'bug'}
+    headers = {'Authorization': 'token %s' % api_token}
+    timeout = time.time() + 5 # 5 second timeout between requests
+    # Initial reuqest
+    r = requests.get(request, params=params, headers=headers)
+    # This directory will be created wherever the script is being ran from
     os.makedirs('issues/', exist_ok=True)
-    request = 'https://' + jira_project_name + '/rest/api/2/search?'\
-        + 'jql={}&startAt={}&maxResults={}'
 
-    # Do small request to establish value of 'total'
-    with url.urlopen(request.format(jql, start_at, '1')) as conn:
-        contents = json.loads(conn.read().decode('utf-8'))
-        total = contents['total']
+    issues = []
+    pr = []
 
-    # Fetch all matching issues and write to file(s)
-    print('Total issue matches: ' + str(total))
-    print('Progress: | = ' + str(max_results) + ' issues')
-    while start_at < total:
-        with url.urlopen(request.format(jql, start_at, max_results)) as conn:
-            with io.open('issues/res' + str(start_at) + '.json', 'w', encoding="utf-8") as f:
-                f.write(conn.read().decode('utf-8', 'ignore'))
-        print('|', end='', flush='True')
-        start_at += max_results
+    # Loop through each page of issues
+    while True:
+        if time.time() > timeout:
+            # This is put inside the loop so that the page numebr will be updated
+            
+            timeout = time.time() + 5 # 5 second timeout between requests
+            try:
+                json_obj = json.loads(r.text)
+                # go through each json dictionary and split up pull requests from issues
+                for data in json_obj:
+                    result = re.search("pull", data['html_url'])
+                    if (result):
+                        pr.append(data)
+                    else:
+                        issues.append(data)
+                        
+                # if there are no links we can assume that the rate limit was reached, and thus we will provide a checkpoint for next time
+                if len(r.links) == 0:
+                    print(dir(r))
+            except Exception as e:
+                print("An error has occurred")
+                print(e)
+                break
 
-    print('\nDone!')
+            print("Successful page requests: %d" % (startpage))
 
+            # look for:
+            # <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=2>;rel="next"
+            # in the links returned from the API which indicate that there are more issues
+            # To view these links, you can also use the curl command, i.e. curl -I "https://api.github.com/search/code?q=addClass+user:mozilla"
+            # the -I command indicates that you are only interested in the headers, not the content
+            if 'next' in r.links:
+                startpage += 1
+                print("Next link: ", r.links['next']['url'])
+                request = r.links['next']['url']
+                r = requests.get(request, headers=headers)
+            else:
+                break
+    if len(issues) > 0:
+        with open("issues/issue_results", 'a') as f:
+            f.write(json.dumps(issues, indent=2))
+    if len(pr) > 0:
+        with open("issues/pr_results", 'a') as f:
+            f.write(json.dumps(pr, indent=2))
+    print("Task completed")
 if __name__ == '__main__':
 
-	parser = argparse.ArgumentParser(description="""Convert a git log output to json.
-                                                 """)
-	parser.add_argument('--issue-code', type=str,
-        	help="The code used for the project issues on JIRA: e.g., JENKINS-1123. Only JENKINS needs to be passed as parameter.")
-	parser.add_argument('--jira-project', type=str,
-            help="The name of the Jira repository of the project.")
+    parser = argparse.ArgumentParser(description='Get issues associated with a Github repository.')
+    parser.add_argument('--owner', '-o', type=str, required=True,
+                    help='The owner/organization associated with a repository')
+    parser.add_argument('--repo', '-r', type=str, required=True,
+                    help='The repository name')
 
-	args = parser.parse_args()
-	project_issue_code = args.issue_code
-	jira_project_name = args.jira_project
-	fetch(project_issue_code, jira_project_name)
+    args = parser.parse_args()
+
+    fetch_issues(args.owner, args.repo, )
