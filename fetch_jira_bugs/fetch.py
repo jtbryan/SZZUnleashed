@@ -13,6 +13,7 @@ import io
 import sys
 import time
 import re
+import config
 
 def fetch_issues(owner, repo):
     """ Fetch all issues from given repository """
@@ -22,7 +23,7 @@ def fetch_issues(owner, repo):
     # NOTE: This is not necessary, just recommended
     # Rate limit with token: 30 requests per minute
     # Without token: 10 requests per minute
-    api_token = "8e1f56e38618109720a1340dfe0bca977e7ce4ad"
+    api_token = config.api_key
 
     '''
         Searching for issues includes both pull requests and issues
@@ -89,10 +90,10 @@ def fetch_issues(owner, repo):
             else:
                 break
     if len(issues) > 0:
-        with open("issues/issue_results", 'a') as f:
+        with open("issues/issue_results.json", 'a') as f:
             f.write(json.dumps(issues, indent=2))
     if len(pr) > 0:
-        with open("issues/pr_results", 'a') as f:
+        with open("issues/pr_results.json", 'a') as f:
             f.write(json.dumps(pr, indent=2))
     print("Task completed")
 if __name__ == '__main__':

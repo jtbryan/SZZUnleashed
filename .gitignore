@@ -32,3 +32,4 @@ model/data
 
 issues/*
 commits/*
+config.py
